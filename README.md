@@ -64,6 +64,11 @@ The two profiles are independent — pick the one you want with
 
 ### Build commands (west)
 
+> **Windows users: use the PowerShell block. The bash recipes below will
+> fail on PowerShell.** See the *Why two flavors?* note underneath.
+
+**Linux / macOS (bash):**
+
 PN532 bring-up:
 
 ```bash
@@ -78,35 +83,42 @@ west build -b nrf54l15dk/nrf54l15/cpuapp/ns -p auto . -- -DCONF_FILE=prj.conf
 west flash --runner jlink
 ```
 
+**Windows (PowerShell):**
+
+PN532 bring-up:
+
+```powershell
+west build -b nrf54l15dk/nrf54l15/cpuapp/ns -p auto -d C:\b\nfc . -- "-DCONF_FILE=prj-pn532.conf"
+west flash --runner jlink -d C:\b\nfc
+```
+
+Full app:
+
+```powershell
+west build -b nrf54l15dk/nrf54l15/cpuapp/ns -p auto -d C:\b\nfc . -- "-DCONF_FILE=prj.conf"
+west flash --runner jlink -d C:\b\nfc
+```
+
+#### Why two flavors?
+
+Two Windows-only quirks are doing real work in the PowerShell recipe:
+
+- **`"-DCONF_FILE=..."` is quoted** because PowerShell otherwise splits the
+  argument on the `.` in `.conf` and `west` ends up looking for a file named
+  `prj-pn532` (no extension).
+- **`-d C:\b\nfc` points the build at a short root.** Without it, the TF-M
+  build for `cpuapp/ns` produces dependency-file paths
+  (`secure_fw/.../__/__/__/generated/...`) that exceed Windows' 260-char
+  MAX_PATH; gcc then fails with `No such file or directory` on a perfectly
+  valid path. Any short root works — `C:\b\nfc` is just an example. The
+  matching `-d` must be passed to `west flash` so it finds the build.
+
+  Alternative: enable Windows long-path support system-wide
+  (`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`,
+  reboot required). The short-build-dir approach is less invasive.
+
 `CMakeLists.txt` registers this directory as a `BOARD_ROOT`, so the local
 `boards/` overlay is picked up automatically.
-
-### Windows / PowerShell notes
-
-Two gotchas when building this tree on Windows:
-
-1. **Quote `-DCONF_FILE=...`** — PowerShell splits the argument on the `.`
-   in `.conf`, so `west` ends up looking for a file named `prj-pn532`. Wrap
-   it in double quotes:
-
-   ```powershell
-   west build -b nrf54l15dk/nrf54l15/cpuapp/ns -p auto . -- "-DCONF_FILE=prj-pn532.conf"
-   ```
-
-2. **Use a short build directory** — the TF-M build for `cpuapp/ns` generates
-   very deep object paths (`secure_fw/.../__/__/__/generated/...`). Combined
-   with the user-profile-rooted source path, the resulting `.o.d` filenames
-   exceed Windows' 260-character MAX_PATH and gcc fails with
-   `No such file or directory` on a perfectly valid path. Point `west` at a
-   short build root with `-d`:
-
-   ```powershell
-   west build -b nrf54l15dk/nrf54l15/cpuapp/ns -p auto -d C:\b\nfc . -- "-DCONF_FILE=prj-pn532.conf"
-   ```
-
-   Alternative: enable Windows long-path support system-wide
-   (`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`,
-   reboot required). The short-build-dir approach is less invasive.
 
 ---
 
