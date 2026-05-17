@@ -1,0 +1,101 @@
+source "Kconfig.zephyr"
+
+menu "BLE & NFC Emulator Application"
+
+choice ENV_MODE
+	prompt "BLE & NFC Emulator environment mode"
+	default ENV_NFC_PN532
+	help
+	  Select which NFC source is compiled into the firmware.
+
+config ENV_NFC_PN532
+	bool "PN532 NFC environment"
+	depends on I2C
+	help
+	  Use PN532 NFC publisher over I2C.
+
+endchoice
+
+config NFC_PN532
+	bool
+	default y if ENV_NFC_PN532
+	default n
+	help
+	  Internal selector for compiling PN532 NFC source.
+
+config INCLUDE_UI_GPIO
+	bool
+	default y if INCLUDE_APP_PIPELINE && BOARD_NRF54L15DK
+	default n
+	help
+	  Internal selector for compiling the GPIO-based UI manager.
+	  Only available on boards with direct GPIO LEDs (led0-led3 aliases).
+
+config PN532_POLL_PERIOD_MS
+	int "PN532 polling period (ms)"
+	depends on NFC_PN532
+	range 20 2000
+	default 120
+	help
+	  Delay between PN532 polling rounds.
+
+config PN532_PUBLISH_TIMEOUT_MS
+	int "PN532 zbus publish timeout (ms)"
+	depends on NFC_PN532
+	range 10 1000
+	default 100
+	help
+	  Timeout used by zbus_chan_pub when sending nfc_events.
+
+config PN532_DETECT_STREAK
+	int "PN532 detect debounce samples"
+	depends on NFC_PN532
+	range 1 10
+	default 2
+	help
+	  Number of consecutive successful UID polls required before publishing
+	  a tag detected event.
+
+config PN532_REMOVE_STREAK
+	int "PN532 remove debounce samples"
+	depends on NFC_PN532
+	range 1 20
+	default 3
+	help
+	  Number of consecutive no-tag polls required before publishing
+	  a tag removed event.
+
+config NFC_TEST_OBSERVER
+	bool "Enable NFC test observer logs"
+	depends on NFC_PN532
+	default y if ENV_NFC_PN532_ISOLATED
+	default n
+	help
+	  Adds a temporary Zbus subscriber thread that logs compact nfc_events
+	  telemetry (detect/remove, UID length, timestamp delta, UID bytes).
+	  Use this during NFC bring-up and disable for normal app runs.
+
+config STRICT_UID_VERIFY
+	bool "Strict UID verification in Tag Manager"
+	default n if ENV_NFC_PN532
+	help
+	  If enabled, Tag Manager verifies NFC UID against TARGET_UID.
+	  If disabled, any detected non-empty UID is treated as verified.
+
+config I2C_SCANNER_ON_BOOT
+	bool "Run one-shot I2C scanner during boot"
+	depends on I2C
+	default y if ENV_NFC_PN532_ISOLATED
+	default n
+	help
+	  Runs a one-shot address scanner on the configured I2C bus at startup.
+	  Useful for bring-up validation on isolated test environments.
+
+config BOARD_INIT
+	bool "Enable board-level initialization"
+	depends on GPIO
+	default y if BOARD_NRF54L15DK
+	help
+	  Drives initialization of board-specific features like LEDs and buttons. Not strictly.
+
+endmenu

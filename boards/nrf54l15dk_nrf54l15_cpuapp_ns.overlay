@@ -1,0 +1,52 @@
+/*
+ * PN532 I2C bring-up overlay for nRF54L15DK (cpuapp/ns).
+ * Update pinctrl and bus instance to match your wiring.
+ */
+
+/ {
+	aliases {
+		i2c0 = &i2c21;
+		pn532 = &pn532_i2c;
+	};
+};
+
+&pinctrl {
+	/*
+	 * Default provisional mapping for PN532 I2C on DK.
+	 * Adjust these pins to match your actual wiring.
+	 */
+	/omit-if-no-ref/ i2c21_pn532_default: i2c21_pn532_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 1, 7)>,
+				<NRF_PSEL(TWIM_SCL, 1, 6)>;
+			bias-pull-up;
+		};
+	};
+
+	/omit-if-no-ref/ i2c21_pn532_sleep: i2c21_pn532_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 1, 7)>,
+				<NRF_PSEL(TWIM_SCL, 1, 6)>;
+			low-power-enable;
+		};
+	};
+};
+
+/*
+ * TODO: adjust the bus instance (&i2c21) and pinctrl configuration according
+ * to the exact DK header pins used for SDA/SCL.
+ */
+&i2c21 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_STANDARD>;
+	pinctrl-0 = <&i2c21_pn532_default>;
+	pinctrl-1 = <&i2c21_pn532_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	pn532_i2c: pn532@24 {
+		compatible = "zephyr,i2c-device";
+		reg = <0x24>;
+		status = "okay";
+	};
+};
