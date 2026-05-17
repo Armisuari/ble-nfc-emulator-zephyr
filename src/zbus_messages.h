@@ -2,8 +2,8 @@
  * @file zbus_messages.h
  * @brief Shared Zbus message types and channel declarations for BLE & NFC Emulator.
  *
- * This header is pure C so it can be included from both .c and .cpp files.
- * All Zbus channel definitions live in zbus_channels.c.
+ * Pure C so it can be included from both .c and .cpp files.
+ * All ZBUS_CHAN_DEFINE calls live in zbus_channels.c.
  */
 
 #ifndef ZBUS_MESSAGES_H_
@@ -23,9 +23,9 @@ extern "C" {
 /*  Message Structs                                                           */
 /* -------------------------------------------------------------------------- */
 
-/** NFC tag detection event (PN7150 / mock). */
+/** NFC tag detection event. */
 struct nfc_event_msg {
-	uint8_t tag_id[7];     /**< Tag UID (up to 7 bytes, ISO 14443) */
+	uint8_t tag_id[7];     /**< Tag UID (up to 7 bytes, ISO 14443-A) */
 	uint8_t tag_id_len;    /**< Actual length of tag_id */
 	bool    detected;      /**< true = tag entered field, false = removed */
 	int64_t timestamp_us;  /**< Kernel uptime in microseconds */
@@ -40,7 +40,8 @@ struct ble_nfc_emulator_status_msg {
 /*  Zbus Channel Declarations                                                 */
 /* -------------------------------------------------------------------------- */
 
-ZBUS_CHAN_DECLARE(nfc_events, ble_nfc_emulator_status_msg, ZBUS_CHAN_PUB_ONLY);
+ZBUS_CHAN_DECLARE(nfc_events);
+ZBUS_CHAN_DECLARE(ble_nfc_emulator_status);
 
 #ifdef __cplusplus
 }

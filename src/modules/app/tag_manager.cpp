@@ -2,9 +2,8 @@
  * @file tag_manager.cpp
  * @brief Tag Manager – Zbus subscriber thread implementation.
  *
- * Bridges the TagManager C++ class with the C-based Zephyr Zbus API.
- * A dedicated thread waits for nfc_events notifications and delegates
- * processing to the TagManager instance.
+ * Subscribes to nfc_events, drives the NFC state machine, and republishes
+ * a compact JSON status to ble_nfc_emulator_status for BLE notification.
  */
 
 #include "tag_manager.h"
@@ -12,6 +11,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/printk.h>
 
 extern "C" {
 #include "zbus_messages.h"
@@ -19,17 +19,45 @@ extern "C" {
 
 LOG_MODULE_REGISTER(tag_manager, CONFIG_LOG_DEFAULT_LEVEL);
 
-/* ---- Zbus subscriber (C linkage) ---------------------------------------- */
 extern "C" {
 ZBUS_SUBSCRIBER_DEFINE(tag_manager_sub, 8);
 ZBUS_CHAN_ADD_OBS(nfc_events, tag_manager_sub, 3);
 }
 
-/* ---- Singleton instance -------------------------------------------------- */
 static TagManager manager;
 
-/* ---- TagManager methods -------------------------------------------------- */
-constexpr uint8_t TagManager::TARGET_UID[4];
+constexpr uint8_t TagManager::TARGET_UID[TagManager::TARGET_UID_LEN];
+
+static const char *state_to_str(nfc_state_t s)
+{
+	switch (s) {
+	case STATE_IDLE:     return "idle";
+	case STATE_READING:  return "reading";
+	case STATE_VERIFIED: return "verified";
+	case STATE_ERROR:    return "error";
+	}
+	return "unknown";
+}
+
+static void publish_status(nfc_state_t state, const uint8_t *uid, uint8_t uid_len)
+{
+	struct ble_nfc_emulator_status_msg status = {};
+	char uid_str[24] = {0};
+
+	ble_nfc_emulator_format_uid(uid, uid_len, uid_str, sizeof(uid_str));
+
+	int written = snprintk(status.payload, sizeof(status.payload),
+			       "{\"state\":\"%s\",\"uid\":\"%s\"}",
+			       state_to_str(state), uid_str);
+	if (written <= 0) {
+		return;
+	}
+
+	int ret = zbus_chan_pub(&ble_nfc_emulator_status, &status, K_MSEC(50));
+	if (ret < 0) {
+		LOG_DBG("Status publish skipped: %d", ret);
+	}
+}
 
 void TagManager::on_tag_event(const uint8_t *tag_id, uint8_t tag_id_len,
 			      bool detected, int64_t timestamp_us)
@@ -39,29 +67,24 @@ void TagManager::on_tag_event(const uint8_t *tag_id, uint8_t tag_id_len,
 	++event_count_;
 
 	if (!detected) {
-		/* Tag Removed Event */
 		state_ = STATE_IDLE;
 		memset(active_uid_, 0, sizeof(active_uid_));
-		LOG_INF("NFC State Trigger | Tag REMOVED -> Transitioning to IDLE");
+		LOG_INF("Tag REMOVED -> IDLE");
+		publish_status(state_, nullptr, 0);
 		return;
 	}
 
-	/* Tag Detected Event -> Transition to READING */
 	state_ = STATE_READING;
 
-	char uid_str[32] = {0};
-	smarttag_format_uid(tag_id, tag_id_len, uid_str, sizeof(uid_str));
-	LOG_INF("NFC State Trigger | Tag DETECTED [%s] -> Transitioning to READING", uid_str);
+	char uid_str[24] = {0};
+	ble_nfc_emulator_format_uid(tag_id, tag_id_len, uid_str, sizeof(uid_str));
+	LOG_INF("Tag DETECTED [%s] -> READING", uid_str);
 
-	/* Verification Step */
-	bool verified = false;
-#if defined(CONFIG_SMARTTAG_TAG_STRICT_UID_VERIFY)
-	if (tag_id_len == TARGET_UID_LEN && memcmp(tag_id, TARGET_UID, TARGET_UID_LEN) == 0) {
-		verified = true;
-	}
+#if defined(CONFIG_STRICT_UID_VERIFY)
+	const bool verified = (tag_id_len == TARGET_UID_LEN) &&
+			      (memcmp(tag_id, TARGET_UID, TARGET_UID_LEN) == 0);
 #else
-	/* PN532 bring-up mode: accept any non-empty UID as verified. */
-	verified = (tag_id_len > 0U);
+	const bool verified = (tag_id_len > 0U);
 #endif
 
 	if (verified) {
@@ -71,32 +94,32 @@ void TagManager::on_tag_event(const uint8_t *tag_id, uint8_t tag_id_len,
 			copy_len = sizeof(active_uid_);
 		}
 		memcpy(active_uid_, tag_id, copy_len);
-		LOG_INF("NFC State         | Verification SUCCESS -> Transitioning to VERIFIED");
+		LOG_INF("Verification SUCCESS -> VERIFIED");
 	} else {
 		state_ = STATE_ERROR;
-		LOG_WRN("NFC State         | Verification FAILED -> Transitioning to ERROR");
+		LOG_WRN("Verification FAILED -> ERROR");
 	}
+
+	publish_status(state_, tag_id, tag_id_len);
 }
 
-/* ---- Thread entry point -------------------------------------------------- */
 static void tag_manager_thread(void *, void *, void *)
 {
 	const struct zbus_channel *chan;
+	struct nfc_event_msg msg;
 
 	LOG_INF("Tag Manager thread started — waiting for nfc_events");
 
 	while (true) {
-		if (zbus_sub_wait(&tag_manager_sub, &chan, K_FOREVER) == 0) {
-			struct nfc_event_msg msg;
-
-			if (zbus_chan_read(&nfc_events, &msg,
-					  K_MSEC(100)) == 0) {
-				manager.on_tag_event(msg.tag_id,
-						     msg.tag_id_len,
-						     msg.detected,
-						     msg.timestamp_us);
-			}
+		if (zbus_sub_wait(&tag_manager_sub, &chan, K_FOREVER) != 0) {
+			continue;
 		}
+		if (zbus_chan_read(&nfc_events, &msg, K_MSEC(100)) != 0) {
+			LOG_WRN("nfc_events read failed");
+			continue;
+		}
+		manager.on_tag_event(msg.tag_id, msg.tag_id_len,
+				     msg.detected, msg.timestamp_us);
 	}
 }
 

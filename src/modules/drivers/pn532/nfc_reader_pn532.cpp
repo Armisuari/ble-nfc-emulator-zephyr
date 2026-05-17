@@ -23,7 +23,7 @@ extern "C" {
 #include "zbus_messages.h"
 }
 
-#if defined(CONFIG_SMARTTAG_I2C_SCANNER_ON_BOOT)
+#if defined(CONFIG_I2C_SCANNER_ON_BOOT)
 #include "modules/app/i2c_scanner.h"
 #endif
 
@@ -55,12 +55,18 @@ static constexpr uint8_t PN532_I2C_READY                = 0x01;
 static constexpr size_t PN532_FRAME_MAX = 32;
 static constexpr size_t PN532_READ_MAX  = 40;
 
-#if !defined(CONFIG_SMARTTAG_PN532_DETECT_STREAK)
-#define CONFIG_SMARTTAG_PN532_DETECT_STREAK 1
+/* Fallbacks if Kconfig values are absent (e.g. driver-only build). */
+#if !defined(CONFIG_PN532_DETECT_STREAK)
+#define CONFIG_PN532_DETECT_STREAK 2
 #endif
-
-#if !defined(CONFIG_SMARTTAG_PN532_REMOVE_STREAK)
-#define CONFIG_SMARTTAG_PN532_REMOVE_STREAK 1
+#if !defined(CONFIG_PN532_REMOVE_STREAK)
+#define CONFIG_PN532_REMOVE_STREAK 3
+#endif
+#if !defined(CONFIG_PN532_PUBLISH_TIMEOUT_MS)
+#define CONFIG_PN532_PUBLISH_TIMEOUT_MS 100
+#endif
+#if !defined(CONFIG_PN532_POLL_PERIOD_MS)
+#define CONFIG_PN532_POLL_PERIOD_MS 120
 #endif
 
 NfcReaderPn532::NfcReaderPn532()
@@ -234,7 +240,7 @@ int NfcReaderPn532::init()
         return last_error_;
     }
 
-#if defined(CONFIG_SMARTTAG_I2C_SCANNER_ON_BOOT)
+#if defined(CONFIG_I2C_SCANNER_ON_BOOT)
     int scan_found = i2c_scanner_run_once();
     if (scan_found <= 0) {
         last_error_ = -ENODEV;
@@ -356,7 +362,7 @@ int NfcReaderPn532::publish_nfc_event(const uint8_t *uid, uint8_t uid_len, bool 
     msg.timestamp_us = k_ticks_to_us_floor64(k_uptime_ticks());
 
     int ret = zbus_chan_pub(&nfc_events, &msg,
-                            K_MSEC(CONFIG_SMARTTAG_PN532_PUBLISH_TIMEOUT_MS));
+                            K_MSEC(CONFIG_PN532_PUBLISH_TIMEOUT_MS));
     if (ret < 0) {
         LOG_WRN("Failed to publish nfc_events: %d", ret);
     }
@@ -414,6 +420,7 @@ void NfcReaderPn532::process_once()
                         (memcmp(uid, last_uid_, uid_len) == 0);
 
         if (!same_uid) {
+            memset(last_uid_, 0, sizeof(last_uid_));
             if (uid_len > 0U) {
                 memcpy(last_uid_, uid, uid_len);
             }
@@ -423,7 +430,7 @@ void NfcReaderPn532::process_once()
             ++detect_streak_;
         }
 
-        if (!last_detected_ && detect_streak_ >= CONFIG_SMARTTAG_PN532_DETECT_STREAK) {
+        if (!last_detected_ && detect_streak_ >= CONFIG_PN532_DETECT_STREAK) {
             publish_nfc_event(uid, uid_len, true);
             last_detected_ = true;
             LOG_INF("PN532 tag detected (uid_len=%u)", uid_len);
@@ -439,7 +446,7 @@ void NfcReaderPn532::process_once()
                 ++miss_streak_;
             }
 
-            if (miss_streak_ >= CONFIG_SMARTTAG_PN532_REMOVE_STREAK) {
+            if (miss_streak_ >= CONFIG_PN532_REMOVE_STREAK) {
                 publish_nfc_event(nullptr, 0, false);
                 last_detected_ = false;
                 miss_streak_ = 0;
@@ -465,7 +472,7 @@ static void pn532_poll_thread(void *, void *, void *)
             g_pn532_reader.process_once();
         }
 
-        k_msleep(CONFIG_SMARTTAG_PN532_POLL_PERIOD_MS);
+        k_msleep(CONFIG_PN532_POLL_PERIOD_MS);
     }
 }
 

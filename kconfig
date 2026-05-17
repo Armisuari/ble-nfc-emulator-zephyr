@@ -19,17 +19,15 @@ endchoice
 config NFC_PN532
 	bool
 	default y if ENV_NFC_PN532
-	default n
 	help
-	  Internal selector for compiling PN532 NFC source.
+	  Internal selector for compiling the PN532 NFC source.
 
-config INCLUDE_UI_GPIO
-	bool
-	default y if INCLUDE_APP_PIPELINE && BOARD_NRF54L15DK
-	default n
+config INCLUDE_APP_PIPELINE
+	bool "Build application + middleware pipeline"
+	default y
 	help
-	  Internal selector for compiling the GPIO-based UI manager.
-	  Only available on boards with direct GPIO LEDs (led0-led3 aliases).
+	  Compiles tag_manager (app) and ble_peripheral (middleware, when CONFIG_BT=y).
+	  Disable for driver-only / bring-up builds (e.g. prj-pn532.conf).
 
 config PN532_POLL_PERIOD_MS
 	int "PN532 polling period (ms)"
@@ -53,8 +51,8 @@ config PN532_DETECT_STREAK
 	range 1 10
 	default 2
 	help
-	  Number of consecutive successful UID polls required before publishing
-	  a tag detected event.
+	  Consecutive successful UID polls required before publishing a tag
+	  detected event.
 
 config PN532_REMOVE_STREAK
 	int "PN532 remove debounce samples"
@@ -62,40 +60,31 @@ config PN532_REMOVE_STREAK
 	range 1 20
 	default 3
 	help
-	  Number of consecutive no-tag polls required before publishing
-	  a tag removed event.
+	  Consecutive no-tag polls required before publishing a tag removed event.
 
 config NFC_TEST_OBSERVER
 	bool "Enable NFC test observer logs"
 	depends on NFC_PN532
-	default y if ENV_NFC_PN532_ISOLATED
 	default n
 	help
-	  Adds a temporary Zbus subscriber thread that logs compact nfc_events
-	  telemetry (detect/remove, UID length, timestamp delta, UID bytes).
-	  Use this during NFC bring-up and disable for normal app runs.
+	  Adds a Zbus subscriber thread that logs compact nfc_events telemetry
+	  (detect/remove, UID length, timestamp delta, UID bytes). Use during
+	  NFC bring-up; disable for normal app runs.
 
 config STRICT_UID_VERIFY
 	bool "Strict UID verification in Tag Manager"
-	default n if ENV_NFC_PN532
+	depends on INCLUDE_APP_PIPELINE
+	default n
 	help
-	  If enabled, Tag Manager verifies NFC UID against TARGET_UID.
+	  If enabled, Tag Manager verifies the NFC UID against TARGET_UID.
 	  If disabled, any detected non-empty UID is treated as verified.
 
 config I2C_SCANNER_ON_BOOT
 	bool "Run one-shot I2C scanner during boot"
 	depends on I2C
-	default y if ENV_NFC_PN532_ISOLATED
 	default n
 	help
 	  Runs a one-shot address scanner on the configured I2C bus at startup.
 	  Useful for bring-up validation on isolated test environments.
-
-config BOARD_INIT
-	bool "Enable board-level initialization"
-	depends on GPIO
-	default y if BOARD_NRF54L15DK
-	help
-	  Drives initialization of board-specific features like LEDs and buttons. Not strictly.
 
 endmenu

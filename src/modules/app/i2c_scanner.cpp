@@ -88,13 +88,18 @@ static void log_bus_line_state(void)
 #endif
 
 #if DT_NODE_HAS_STATUS(I2C_SCAN_NODE, okay)
+
+static constexpr uint16_t I2C_SCAN_ADDR_FIRST = 0x08;
+static constexpr uint16_t I2C_SCAN_ADDR_LAST  = 0x77;
+static constexpr int I2C_SCAN_ADDR_COUNT = I2C_SCAN_ADDR_LAST - I2C_SCAN_ADDR_FIRST + 1;
+
 static int probe_address(const struct device *bus, uint16_t addr)
 {
     uint8_t dummy = 0;
-
     /* Zero-length write probe keeps scanner lightweight for boot diagnostics. */
     return i2c_write(bus, &dummy, 0U, addr);
 }
+
 #endif
 
 int i2c_scanner_run_once(void)
@@ -108,7 +113,6 @@ int i2c_scanner_run_once(void)
     int timeout_like = 0;
     int nack_like = 0;
     int other_err = 0;
-    uint32_t start_ms = k_uptime_get_32();
 
     if (!device_is_ready(bus)) {
         LOG_ERR("I2C bus '%s' is not ready", bus->name);
@@ -118,8 +122,10 @@ int i2c_scanner_run_once(void)
     log_bus_line_state();
     LOG_INF("I2C scan start on %s", bus->name);
 
-    for (uint16_t addr = 0x08; addr <= 0x77; ++addr) {
-        int rc = probe_address(bus, addr);
+    const uint32_t start_ms = k_uptime_get_32();
+
+    for (uint16_t addr = I2C_SCAN_ADDR_FIRST; addr <= I2C_SCAN_ADDR_LAST; ++addr) {
+        const int rc = probe_address(bus, addr);
 
         if (rc == 0) {
             LOG_INF("I2C device found at 0x%02X", addr);
@@ -137,8 +143,10 @@ int i2c_scanner_run_once(void)
             found, (unsigned int)(k_uptime_get_32() - start_ms));
 
     if (found == 0) {
-        if ((timeout_like + nack_like + other_err) == 112) {
-            LOG_INF("No responder detected across all addresses (expected when no I2C device is connected)");
+        const int total_errors = timeout_like + nack_like + other_err;
+
+        if (total_errors == I2C_SCAN_ADDR_COUNT) {
+            LOG_INF("No responder detected across all addresses (expected when no device is connected)");
         } else {
             LOG_WRN("No I2C ACK received. Check SDA/SCL wiring, GND, and 3.3V pull-ups.");
         }
